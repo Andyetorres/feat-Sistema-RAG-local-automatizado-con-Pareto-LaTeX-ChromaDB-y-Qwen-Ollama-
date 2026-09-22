@@ -1,0 +1,14 @@
+cat << 'EOF' > .gitignore
+# Entorno virtual
+venv/
+__pycache__/
+*.pyc
+
+# Salidas generadas y bases de datos locales
+outputs/pdfs/*.pdf
+outputs/latex_sources/*.aux
+outputs/latex_sources/*.log
+outputs/latex_sources/*.out
+outputs/latex_sources/*.toc
+data/chroma_db/
+EOF
