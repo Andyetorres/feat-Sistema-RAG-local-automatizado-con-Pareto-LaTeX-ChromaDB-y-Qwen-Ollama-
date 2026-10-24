@@ -4,6 +4,21 @@ import duckdb
 import os
 import altair as alt
 import numpy as np
+import base64
+import io
+from datetime import datetime
+
+# --- IMPORTACIÓN DEL NÚCLEO Y MÓDULOS DEL PROYECTO ---
+from src.nucleo_mineria import (
+    perfil,
+    preparar,
+    segmentar,
+    pronosticar,
+    generar_smart_insights,
+    construir_informe
+)
+from src.generador_latex import generar_archivo_tex, compilar_latex_a_pdf
+from src.simulador_datos import generar_datos_simulados
 
 # Configuración de la página
 st.set_page_config(
@@ -41,6 +56,12 @@ if "seccion" not in st.session_state:
 if "archivo_cargado" not in st.session_state:
     st.session_state["archivo_cargado"] = False
 
+if "res_prep" not in st.session_state:
+    st.session_state["res_prep"] = None
+
+if "res_modelos" not in st.session_state:
+    st.session_state["res_modelos"] = {}
+
 # --- FUNCIÓN DE CARGA DE DATOS DUCKDB ---
 @st.cache_data
 def cargar_datos_duckdb():
@@ -70,15 +91,12 @@ with st.sidebar:
         "4. Informe LaTeX"
     ]
     
-    # 1. Asegurar que la sesión tenga una sección inicial válida
     if "seccion" not in st.session_state:
         st.session_state["seccion"] = opciones[0]
 
-    # 2. ALINEACIÓN CLAVE: Actualizamos el valor del widget *antes* de instanciarlo
-    # Esto evita el desfase cuando usas los botones de "Siguiente"
+    # Sincronización limpia del estado del widget para evitar congelamientos
     st.session_state["radio_nav"] = st.session_state["seccion"]
 
-    # 3. Callback para cuando el usuario hace clic directamente en el panel lateral
     def actualizar_navegacion():
         st.session_state["seccion"] = st.session_state["radio_nav"]
 
@@ -133,7 +151,7 @@ if st.session_state["seccion"] == "1. Negocio & Ingesta":
             type=["xlsx", "txt", "csv", "mp4", "avi", "png", "jpg"]
         )
         
-        # PROCESAR ARCHIVO SUBIDO Y VALIDAR ESQUEMA DE 6 COLUMNAS
+        # PROCESAR ARCHIVO SUBIDO Y VALIDAR ESQUEMA
         if archivo is not None:
             try:
                 if archivo.name.endswith(('.csv', '.txt')):
@@ -172,6 +190,8 @@ if st.session_state["seccion"] == "1. Negocio & Ingesta":
                         
                         st.session_state["archivo_cargado"] = True
                         st.session_state["nombre_archivo"] = archivo.name
+                        st.session_state["res_prep"] = None
+                        st.session_state["res_modelos"] = {}
                         st.cache_data.clear()
                         st.success(f"¡Archivo '{archivo.name}' procesado e integrado con éxito ({len(df_limpio)} registros)!")
                         st.rerun()
@@ -182,14 +202,14 @@ if st.session_state["seccion"] == "1. Negocio & Ingesta":
         st.subheader("⚡ Generador de Respaldo")
         st.caption("¿No tienes un archivo a la mano? Genera los 500 registros sintéticos en DuckDB.")
         
-        from src.simulador_datos import generar_datos_simulados
-        
         if st.button("🚀 Generar Datos Sintéticos"):
             try:
                 generar_datos_simulados() 
                 st.cache_data.clear()     
                 st.session_state["archivo_cargado"] = True
                 st.session_state["nombre_archivo"] = "Datos Sintéticos (500 registros)"
+                st.session_state["res_prep"] = None
+                st.session_state["res_modelos"] = {}
                 st.success("¡500 registros sintéticos generados en DuckDB!")
                 st.rerun()
             except Exception as e:
@@ -210,7 +230,6 @@ if st.session_state["seccion"] == "1. Negocio & Ingesta":
                 st.download_button("Descargar TXT / CSV", csv_data, file_name="datos_restaurante.csv", mime="text/csv")
             
             elif formato_descarga == "Excel (.xlsx)":
-                import io
                 output = io.BytesIO()
                 with pd.ExcelWriter(output, engine='openpyxl') as writer:
                     df.to_excel(writer, index=False, sheet_name='Hechos Video')
@@ -220,7 +239,6 @@ if st.session_state["seccion"] == "1. Negocio & Ingesta":
             elif formato_descarga == "PDF Académico":
                 if st.button("Compilar y Descargar PDF"):
                     try:
-                        from src.generador_latex import generar_archivo_tex, compilar_latex_a_pdf
                         generar_archivo_tex(
                             nombre_archivo="reporte_sintetico",
                             tema="Minería de Datos y Simulación de Tráfico",
@@ -253,7 +271,7 @@ if st.session_state["seccion"] == "1. Negocio & Ingesta":
         st.warning("⚠️ Debes subir un archivo o presionar 'Generar Datos Sintéticos' a la derecha para desbloquear la pregunta de negocio y continuar.")
 
 # =============================================================================
-# PÁGINA 2: DATOS & PREPARACIÓN
+# PÁGINA 2: DATOS & PREPARACIÓN (INTEGRADO CON EL NÚCLEO)
 # =============================================================================
 elif st.session_state["seccion"] == "2. Datos & Preparación":
     st.header("2. Comprensión y Preparación de los Datos")
@@ -268,9 +286,31 @@ elif st.session_state["seccion"] == "2. Datos & Preparación":
         m4.metric("Categóricas", len(df.select_dtypes(include=['object']).columns))
         m5.metric("Celdas vacías", int(df.isna().sum().sum()))
 
-        st.markdown("### 💡 Smart Insights Automáticos")
-        st.info("Tendencia Operativa: Mayor concentración de eventos detectada en la zona principal del restaurante.")
+        st.markdown("### 📊 Perfil Estadístico Avanzado (Perfilado del Núcleo)")
+        df_perfil = perfil(df)
+        st.dataframe(df_perfil, use_container_width=True)
+
+        st.markdown("### 💡 Smart Insights Automáticos (Núcleo CRISP-DM)")
+        insights = generar_smart_insights(df, st.session_state.get("res_prep"), st.session_state.get("res_modelos", {}))
+        for ins in insights:
+            st.info(ins)
         
+        st.markdown("---")
+        st.subheader("🧹 Preparación y Limpieza de Datos")
+        col_p1, col_p2 = st.columns(2)
+        with col_p1:
+            tratar_vacios = st.selectbox("Estrategia para valores faltantes:", ["imputar", "eliminar", "ninguno"])
+        with col_p2:
+            tratar_atipicos = st.selectbox("Estrategia para atípicos (1.5xIQR):", ["recortar", "eliminar", "ninguno"])
+            
+        if st.button("⚙️ Ejecutar Preparación con el Núcleo"):
+            res_prep = preparar(df, quitar_duplicados=True, vacios=tratar_vacios, atipicos=tratar_atipicos)
+            st.session_state["res_prep"] = res_prep
+            st.success(f"¡Preparación completada! Filas procesadas: {res_prep['info']['filas_despues']}")
+            for log_item in res_prep["log"]:
+                st.caption(f"• {log_item}")
+
+        st.markdown("---")
         st.subheader("Primeras filas del Almacén de Datos (DuckDB)")
         st.dataframe(df.head(10), use_container_width=True)
         
@@ -280,27 +320,51 @@ elif st.session_state["seccion"] == "2. Datos & Preparación":
             st.rerun()
     else:
         st.warning("Sin datos en DuckDB. Regresa a '1. Negocio & Ingesta' y sube un archivo o genera la simulación.")
+
 # =============================================================================
-# PÁGINA 3: MODELADO ANALÍTICO
+# PÁGINA 3: MODELADO ANALÍTICO (INTEGRADO CON EL NÚCLEO)
 # =============================================================================
 elif st.session_state["seccion"] == "3. Modelado Analítico":
     st.header("🤖 Fase 4: Modelado Analítico (Segmentación y Series de Tiempo)")
     
     if not df.empty:
-        st.subheader("📈 Serie de Tiempo: Flujo de Ingresos por Minuto")
-        df['minuto'] = (df['timestamp_segundo'] / 60).astype(int)
-        flujo_tiempo = df.groupby('minuto').size().reset_index(name='conteo_personas')
-        
-        chart = alt.Chart(flujo_tiempo).mark_line(point=True).encode(
-            x='minuto:Q',
-            y='conteo_personas:Q',
-            tooltip=['minuto', 'conteo_personas']
-        ).interactive()
-        st.altair_chart(chart, use_container_width=True)
+        st.subheader("📈 Pronóstico de Flujo (Series de Tiempo / Holt)")
+        try:
+            df['minuto'] = (df['timestamp_segundo'] / 60).astype(int)
+            res_serie = pronosticar(df, periodo='minuto', medida='track_id', agregacion='conteo', horizonte=5)
+            st.session_state["res_modelos"]["serie"] = res_serie
+            
+            st.line_chart(res_serie["tabla"][["observado", "pronóstico"]])
+            for line in res_serie["lineas"]:
+                st.caption(f"• {line}")
+        except Exception as e:
+            st.warning(f"No se pudo calcular la serie temporal: {e}")
+            # Fallback gráfico en Altair
+            flujo_tiempo = df.groupby('minuto').size().reset_index(name='conteo_personas')
+            chart = alt.Chart(flujo_tiempo).mark_line(point=True).encode(
+                x='minuto:Q',
+                y='conteo_personas:Q',
+                tooltip=['minuto', 'conteo_personas']
+            ).interactive()
+            st.altair_chart(chart, use_container_width=True)
 
-        st.subheader("🎯 Segmentación por Zonas del Restaurante")
-        segmentos = df.groupby('zona_detectada').size().reset_index(name='total')
-        st.bar_chart(segmentos.set_index('zona_detectada'))
+        st.markdown("---")
+        st.subheader("🎯 Segmentación por Clústeres (K-Medias / Buyer Personas)")
+        try:
+            num_cols = [c for c in df.select_dtypes(include=['number']).columns if c != 'track_id']
+            if len(num_cols) >= 2:
+                res_seg = segmentar(df, variables=num_cols[:3], k=3)
+                st.session_state["res_modelos"]["segmentos"] = res_seg
+                
+                st.dataframe(res_seg["perfil"], use_container_width=True)
+                st.markdown("**Gráfica del Codo (Inercia):**")
+                st.line_chart(res_seg["codo"])
+            else:
+                st.info("Insuficientes columnas numéricas para k-medias.")
+        except Exception as e:
+            st.warning(f"Error al segmentar: {e}")
+            segmentos = df.groupby('zona_detectada').size().reset_index(name='total')
+            st.bar_chart(segmentos.set_index('zona_detectada'))
         
         st.markdown("---")
         if st.button("Siguiente: Informe LaTeX ➡️"):
@@ -309,9 +373,8 @@ elif st.session_state["seccion"] == "3. Modelado Analítico":
     else:
         st.info("Procesa un video o sube datos en la página de Negocio para visualizar los modelos analíticos.")
 
-
 # =============================================================================
-# PÁGINA 4: INFORME LATEX
+# PÁGINA 4: INFORME LATEX (INTEGRACIÓN CON CONSTRUIR_INFORME DEL NÚCLEO)
 # =============================================================================
 elif st.session_state["seccion"] == "4. Informe LaTeX":
     st.header("📄 Fase 5 y 6: Generación de Informes Automáticos en LaTeX")
@@ -319,50 +382,43 @@ elif st.session_state["seccion"] == "4. Informe LaTeX":
 
     pdf_path = "./outputs/pdfs/informe_restaurante.pdf"
 
-    # 1. Calcular métricas reales de los datos actuales para el reporte
-    if not df.empty:
-        total_registros = len(df)
-        zona_principal = df['zona_detectada'].mode()[0] if not df['zona_detectada'].empty else "N/A"
-        conteo_zonas = df['zona_detectada'].value_counts().to_dict()
-        resumen_zonas_str = ", ".join([f"\\textbf{{{zona}}}: {cnt} eventos" for zona, cnt in conteo_zonas.items()])
-    else:
-        total_registros = 0
-        resumen_zonas_str = "Sin datos registrados."
-
-    # 2. Botón para compilar o actualizar el PDF con datos reales
-    if st.button("Compilar / Actualizar Informe con Datos Reales"):
-        with st.spinner("Compilando código LaTeX con pdflatex..."):
+    if st.button("Compilar Informe Completo con el Núcleo CRISP-DM"):
+        with st.spinner("Compilando reporte estructurado en pdflatex..."):
             try:
-                from src.generador_latex import generar_archivo_tex, compilar_latex_a_pdf
-                
-                # Inyectamos los datos reales calculados en el contenido del LaTeX
-                contenido_dinamico = (
-                    f"El análisis procesó un total de \\textbf{{{total_registros:,}}} registros de eventos de video de forma local. "
-                    f"La distribución de flujo operativo por zonas comerciales muestra el siguiente comportamiento: {resumen_zonas_str}. "
-                    f"Los resultados confirman que la zona con mayor concentración de afluencia es \\textbf{{{zona_principal}}}, "
-                    f"lo que valida la eficacia del modelo para la toma de decisiones gerenciales en tiempo real."
+                # 1. El núcleo redacta el texto ejecutivo académico
+                texto_markdown = construir_informe(
+                    nombre=st.session_state.get("nombre_archivo", "Almacén DuckDB Local"),
+                    objetivo=st.session_state.get("pregunta_negocio", "Análisis de tráfico"),
+                    df=df,
+                    n_archivos=1,
+                    prep=st.session_state.get("res_prep"),
+                    resultados=st.session_state.get("res_modelos", {}),
+                    fecha=datetime.now().strftime("%d/%m/%Y")
                 )
                 
+                # Clean markdown format for LaTeX rendering
+                contenido_latex = texto_markdown.replace("#", "").replace("**", "\\textbf{").replace("*", "")
+                
+                # 2. Generar el código .tex y compilar a PDF
                 generar_archivo_tex(
                     nombre_archivo="informe_restaurante",
-                    tema="Minera de Datos Aplicada a Flujos de Video",
+                    tema="Minería de Datos Aplicada a Flujos de Video",
                     titulo="Analítica de Ocupación en Restaurantes mediante Edge AI",
-                    resumen="Este informe detalla el proceso KDD aplicado a secuencias de video, extrayendo métricas de ocupación y segmentación espacial.",
-                    contenido=contenido_dinamico
+                    resumen="Este informe detalla el proceso KDD aplicado a secuencias de video mediante YOLOv8 y DuckDB.",
+                    contenido=contenido_latex
                 )
                 
                 compilar_latex_a_pdf("./outputs/latex_sources", "./outputs/pdfs")
-                st.success("¡Informe compilado con éxito y actualizado con tus datos!")
+                st.success("¡Informe compilado con éxito y actualizado!")
                 st.rerun()
             except Exception as e:
                 st.error(f"Error al compilar el documento LaTeX: {e}")
 
-    # 3. Previsualización del Informe PDF
+    # 3. Previsualización interactiva del PDF en pantalla
     if os.path.exists(pdf_path):
         st.markdown("---")
         st.subheader("👁️ Previsualización del Informe PDF")
         
-        import base64
         with open(pdf_path, "rb") as f:
             base64_pdf = base64.b64encode(f.read()).decode('utf-8')
         
