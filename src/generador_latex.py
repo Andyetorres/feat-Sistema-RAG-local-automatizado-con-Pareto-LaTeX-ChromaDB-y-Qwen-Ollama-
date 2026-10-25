@@ -1,6 +1,7 @@
 """
 Módulo de Generación y Compilación LaTeX
-Crea plantillas académicas en .tex y automatiza su compilación a PDF usando pdflatex.
+Crea plantillas académicas en .tex y automatiza su compilación a PDF usando pdflatex 
+de forma específica y limpia (sin saturar el almacenamiento local).
 """
 
 import os
@@ -60,23 +61,50 @@ def generar_archivo_tex(nombre_archivo, tema, titulo, resumen, contenido, direct
     print(f"[LaTeX] Archivo generado: {ruta_completa}")
     return ruta_completa
 
-def compilar_latex_a_pdf(directorio_tex, directorio_pdf="./outputs/pdfs"):
-    """Compila todos los archivos .tex de una carpeta a formato PDF usando pdflatex."""
+def compilar_latex_a_pdf(directorio_tex, directorio_pdf="./outputs/pdfs", nombre_archivo=None):
+    """
+    Compila un archivo .tex específico (o todos si no se especifica) a formato PDF 
+    y limpia automáticamente los archivos auxiliares generados (logs, aux, out).
+    """
     os.makedirs(directorio_pdf, exist_ok=True)
     
     if not os.path.exists(directorio_tex):
         print(f"El directorio {directorio_tex} no existe.")
         return
 
-    for archivo in os.listdir(directorio_tex):
-        if archivo.endswith(".tex"):
-            ruta_completa = os.path.join(directorio_tex, archivo)
-            try:
-                # Ejecuta pdflatex indicando el directorio de salida de los PDFs (opcional vía argumentos o moviendo el archivo)
-                subprocess.run(
-                    ["pdflatex", "-interaction=nonstopmode", f"-output-directory={directorio_pdf}", ruta_completa],
-                    check=True
-                )
-                print(f"[PDF] Compilado exitosamente: {archivo}")
-            except subprocess.CalledProcessError as e:
-                print(f"[Error] Falló la compilación de {archivo}: {e}")
+    # Si se pasa un nombre de archivo específico, solo compilamos ese. Si no, filtramos los .tex
+    if nombre_archivo:
+        archivos_a_compilar = [f"{nombre_archivo}.tex" if not nombre_archivo.endswith(".tex") else nombre_archivo]
+    else:
+        archivos_a_compilar = [f for f in os.listdir(directorio_tex) if f.endswith(".tex")]
+
+    for archivo in archivos_a_compilar:
+        ruta_completa = os.path.join(directorio_tex, archivo)
+        
+        if not os.path.exists(ruta_completa):
+            print(f"El archivo {archivo} no se encuentra en {directorio_tex}.")
+            continue
+            
+        try:
+            # Ejecuta pdflatex dirigiendo la salida PDF al directorio correspondiente
+            subprocess.run(
+                ["pdflatex", "-interaction=nonstopmode", f"-output-directory={directorio_pdf}", ruta_completa],
+                check=True
+            )
+            print(f"[PDF] Compilado exitosamente: {archivo}")
+            
+            # --- LIMPIEZA AUTOMÁTICA DE ARCHIVOS AUXILIARES ---
+            # pdflatex genera archivos como .aux, .log, .out que ensucian las carpetas. Los borramos.
+            nombre_base = os.path.splitext(archivo)[0]
+            extensiones_basura = [".aux", ".log", ".out", ".toc", ".synctex.gz"]
+            
+            for ext in extensiones_basura:
+                for directorio in [directorio_pdf, directorio_tex]:
+                    ruta_aux = os.path.join(directorio, nombre_base + ext)
+                    if os.path.exists(ruta_aux):
+                        os.remove(ruta_aux)
+            
+            print(f"[Limpieza] Archivos temporales de '{nombre_base}' eliminados correctamente.")
+
+        except subprocess.CalledProcessError as e:
+            print(f"[Error] Falló la compilación de {archivo}: {e}")

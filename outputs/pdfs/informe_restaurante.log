@@ -1,9 +1,9 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.25 (TeX Live 2023/Debian) (preloaded format=pdflatex 2026.9.21)  21 SEP 2026 19:22
+This is pdfTeX, Version 3.141592653-2.6-1.40.25 (TeX Live 2023/Debian) (preloaded format=pdflatex 2026.9.21)  24 OCT 2026 21:11
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
-**./outputs/latex_sources/dw_prediccion_reporte.tex
-(./outputs/latex_sources/dw_prediccion_reporte.tex
+**./outputs/latex_sources/informe_restaurante.tex
+(./outputs/latex_sources/informe_restaurante.tex
 LaTeX2e <2023-11-01> patch level 1
 L3 programming layer <2024-01-22>
 (/usr/share/texlive/texmf-dist/tex/latex/base/article.cls
@@ -316,8 +316,11 @@ File: l3backend-pdftex.def 2024-01-04 L3 backend support: PDF output (pdfTeX)
 \l__color_backend_stack_int=\count291
 \l__pdf_internal_box=\box53
 )
-No file dw_prediccion_reporte.aux.
-\openout1 = `dw_prediccion_reporte.aux'.
+(./outputs/pdfs/informe_restaurante.aux
+LaTeX Info: Redefining \. on input line 11.
+LaTeX Info: Redefining \% on input line 11.
+)
+\openout1 = `informe_restaurante.aux'.
 
 LaTeX Font Info:    Checking defaults for OML/cmm/m/it on input line 15.
 LaTeX Font Info:    ... okay on input line 15.
@@ -339,6 +342,7 @@ LaTeX Font Info:    Checking defaults for PU/pdf/m/n on input line 15.
 LaTeX Font Info:    ... okay on input line 15.
 LaTeX Info: Redefining \. on input line 15.
 LaTeX Info: Redefining \% on input line 15.
+
 *geometry* driver: auto-detecting
 *geometry* detected driver: pdftex
 *geometry* verbose mode - [ preamble ] result:
@@ -396,8 +400,11 @@ File: epstopdf-sys.cfg 2010/07/13 v1.3 Configuration of (r)epstopdf for TeX Liv
 e
 ))
 Package hyperref Info: Link coloring OFF on input line 15.
+
+(./outputs/pdfs/informe_restaurante.out)
+(./outputs/pdfs/informe_restaurante.out)
 \@outlinefile=\write3
-\openout3 = `dw_prediccion_reporte.out'.
+\openout3 = `informe_restaurante.out'.
 
 LaTeX Font Info:    Trying to load font information for U+msa on input line 18.
 
@@ -410,10 +417,38 @@ LaTeX Font Info:    Trying to load font information for U+msb on input line 18.
 
 (/usr/share/texlive/texmf-dist/tex/latex/amsfonts/umsb.fd
 File: umsb.fd 2013/01/14 v3.01 AMS symbols B
-) [1
+)
+! Undefined control sequence.
+l.27 ...tran mayor afluencia?\newline\newlineNotas
+                                                   operativas del analista: ...
+The control sequence at the end of the top line
+of your error message was never \def'ed. If you have
+misspelled it (e.g., `\hobx'), type `I' and the correct
+spelling (e.g., `I\hbox'). Otherwise just continue,
+and I'll forget about whatever was undefined.
 
-{/var/lib/texmf/fonts/map/pdftex/updmap/pdftex.map}] (./outputs/pdfs/dw_predicc
-ion_reporte.aux
+! Undefined control sequence.
+l.27 ...diante CRISP-DM.\newline\newlineResultados
+                                                   cuantitativos y analític...
+The control sequence at the end of the top line
+of your error message was never \def'ed. If you have
+misspelled it (e.g., `\hobx'), type `I' and the correct
+spelling (e.g., `I\hbox'). Otherwise just continue,
+and I'll forget about whatever was undefined.
+
+! Undefined control sequence.
+l.27 ...241 registros.\newline\newlineConclusiones
+                                                  : El procesamiento de fluj...
+The control sequence at the end of the top line
+of your error message was never \def'ed. If you have
+misspelled it (e.g., `\hobx'), type `I' and the correct
+spelling (e.g., `I\hbox'). Otherwise just continue,
+and I'll forget about whatever was undefined.
+
+[1
+
+{/var/lib/texmf/fonts/map/pdftex/updmap/pdftex.map}]
+(./outputs/pdfs/informe_restaurante.aux
 LaTeX Info: Redefining \. on input line 11.
 LaTeX Info: Redefining \% on input line 11.
 )
@@ -421,33 +456,26 @@ LaTeX Info: Redefining \% on input line 11.
 LaTeX2e <2023-11-01> patch level 1
 L3 programming layer <2024-01-22>
  ***********
-
-
-Package rerunfilecheck Warning: File `dw_prediccion_reporte.out' has changed.
-(rerunfilecheck)                Rerun to get outlines right
-(rerunfilecheck)                or use package `bookmark'.
-
-Package rerunfilecheck Info: Checksums for `dw_prediccion_reporte.out':
-(rerunfilecheck)             Before: <no file>
-(rerunfilecheck)             After:  73195C55E7291C190A70CE81371CAF8B;404.
+Package rerunfilecheck Info: File `informe_restaurante.out' has not changed.
+(rerunfilecheck)             Checksum: 73195C55E7291C190A70CE81371CAF8B;404.
  ) 
 Here is how much of TeX's memory you used:
- 11444 strings out of 476120
- 176093 string characters out of 5793657
- 1929975 words of memory out of 5000000
- 33332 multiletter control sequences out of 15000+600000
+ 11456 strings out of 476120
+ 176406 string characters out of 5793657
+ 1932975 words of memory out of 5000000
+ 33338 multiletter control sequences out of 15000+600000
  563093 words of font info for 55 fonts, out of 8000000 for 9000
  40 hyphenation exceptions out of 8191
- 75i,6n,79p,300b,454s stack positions out of 10000i,1000n,20000p,200000b,200000s
+ 75i,6n,79p,807b,454s stack positions out of 10000i,1000n,20000p,200000b,200000s
 </usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx10.pfb></us
 r/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx12.pfb></usr/shar
 e/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmr10.pfb></usr/share/texli
 ve/texmf-dist/fonts/type1/public/amsfonts/cm/cmr12.pfb>
-Output written on ./outputs/pdfs/dw_prediccion_reporte.pdf (1 page, 57402 bytes
-).
+Output written on ./outputs/pdfs/informe_restaurante.pdf (1 page, 62247 bytes).
+
 PDF statistics:
- 37 PDF objects out of 1000 (max. 8388607)
- 25 compressed objects within 1 object stream
+ 47 PDF objects out of 1000 (max. 8388607)
+ 35 compressed objects within 1 object stream
  6 named destinations out of 1000 (max. 500000)
- 1 words of extra memory for PDF output out of 10000 (max. 10000000)
+ 25 words of extra memory for PDF output out of 10000 (max. 10000000)
 
