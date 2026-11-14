@@ -1,0 +1,13 @@
+streamlit
+pandas
+duckdb
+numpy
+scikit-learn
+opencv-python
+ultralytics
+langchain-text-splitters
+langchain-community
+langchain-huggingface
+chromadb
+pillow
+pyautogui
