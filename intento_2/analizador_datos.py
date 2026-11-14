@@ -1,4 +1,5 @@
 import re
+import time
 import duckdb
 import pandas as pd
 
@@ -9,7 +10,8 @@ class AnalizadorServicio:
     def __init__(self, db_path: str = "intento_2/dw_restaurante.duckdb"):
         self.db_path = db_path
         self._inicializar_dw()
-        self.visitas_activas = set()
+        # {(mesero_id, mesa_id): timestamp_inicio_float}
+        self.visitas_activas = {}
         self.mesas_ocupadas_prev = set()
         self.platos_por_mesa_prev = {}
         self.clientes_atendidos_hoy = 0
@@ -47,6 +49,7 @@ class AnalizadorServicio:
                 veces_ocupada INTEGER,
                 clientes_acumulados INTEGER,
                 visitas_mesero INTEGER,
+                tiempo_promedio_atencion_seg DOUBLE,
                 estado_actual VARCHAR
             )
         """)
@@ -55,7 +58,8 @@ class AnalizadorServicio:
             CREATE TABLE fact_visitas_meseros (
                 timestamp VARCHAR,
                 mesero_id VARCHAR,
-                mesa_id VARCHAR
+                mesa_id VARCHAR,
+                duracion_seg DOUBLE
             )
         """)
         con.close()
@@ -63,6 +67,7 @@ class AnalizadorServicio:
 
     def registrar_frame(self, datos: dict):
         self.contador_eventos += 1
+        ahora_epoch = time.time()
         con = duckdb.connect(self.db_path)
 
         minutos_totales = (self.contador_eventos - 1) * 15
@@ -87,12 +92,8 @@ class AnalizadorServicio:
             if esta_oc:
                 ocupadas_ahora.add(mid)
 
-            # Solo contamos clientes cuando reciben su plato en la mesa (1 plato = 1 cliente atendido)
             platos_ahora = int(mesa.get("platos", 0)) if esta_oc else 0
             platos_antes = self.platos_por_mesa_prev.get(mid, 0)
-
-            # Si la mesa estaba sin platos (0) y ahora le sirven platos, sumamos esa tanda exacta
-            # Si ya tenía platos y llegó un plato extra a la misma mesa, sumamos la diferencia
             incremento_clientes = max(0, platos_ahora - platos_antes)
             self.platos_por_mesa_prev[mid] = platos_ahora
             nuevos_comensales_servidos_frame += incremento_clientes
@@ -103,7 +104,7 @@ class AnalizadorServicio:
             existe = con.execute("SELECT veces_ocupada FROM dim_mesas WHERE mesa_id = ?", [mid]).fetchone()
             if existe is None:
                 con.execute(
-                    "INSERT INTO dim_mesas VALUES (?, ?, ?, ?, 0, ?)",
+                    "INSERT INTO dim_mesas VALUES (?, ?, ?, ?, 0, 0.0, ?)",
                     [mid, sillas_mesa, 1 if esta_oc else 0, platos_ahora, estado_str],
                 )
             else:
@@ -146,14 +147,35 @@ class AnalizadorServicio:
             ],
         )
 
+        # Cronometrar visitas de cada mesero a cada mesa
         pares_actuales = set()
         for v in datos["visitas_meseros"]:
             par = (v["mesero_id"], v["mesa"])
             pares_actuales.add(par)
             if par not in self.visitas_activas:
-                con.execute("INSERT INTO fact_visitas_meseros VALUES (?, ?, ?)", [datos["timestamp"], v["mesero_id"], v["mesa"]])
+                # Inicia atención en mesa
+                self.visitas_activas[par] = ahora_epoch
                 con.execute("UPDATE dim_mesas SET visitas_mesero = visitas_mesero + 1 WHERE mesa_id = ?", [v["mesa"]])
-        self.visitas_activas = pares_actuales
+
+        # Cerrar las visitas que terminaron en este frame y guardar su duración en segundos
+        terminadas = [par for par in self.visitas_activas if par not in pares_actuales]
+        for par in terminadas:
+            t_inicio = self.visitas_activas.pop(par)
+            duracion = round(max(0.3, ahora_epoch - t_inicio), 2)
+            mesero_id, mesa_id = par
+            con.execute(
+                "INSERT INTO fact_visitas_meseros VALUES (?, ?, ?, ?)",
+                [datos["timestamp"], mesero_id, mesa_id, duracion],
+            )
+            # Actualizar tiempo promedio de atención en dim_mesas
+            avg_mesa = con.execute(
+                "SELECT AVG(duracion_seg) FROM fact_visitas_meseros WHERE mesa_id = ?", [mesa_id]
+            ).fetchone()[0]
+            if avg_mesa is not None:
+                con.execute(
+                    "UPDATE dim_mesas SET tiempo_promedio_atencion_seg = ? WHERE mesa_id = ?",
+                    [round(float(avg_mesa), 2), mesa_id],
+                )
 
         con.close()
 
@@ -162,10 +184,15 @@ class AnalizadorServicio:
         df_hechos = con.execute("SELECT * FROM fact_servicio_live ORDER BY id_evento").df()
         df_mesas = con.execute("SELECT * FROM dim_mesas ORDER BY mesa_id").df()
         df_meseros = con.execute("""
-            SELECT mesero_id, COUNT(*) AS mesas_atendidas, COUNT(DISTINCT mesa_id) AS mesas_distintas
+            SELECT
+                mesero_id AS Mesero,
+                COUNT(*) AS Mesas_Atendidas,
+                COUNT(DISTINCT mesa_id) AS Mesas_Distintas,
+                ROUND(AVG(duracion_seg), 2) AS Tiempo_Promedio_Seg,
+                ROUND(SUM(duracion_seg), 1) AS Tiempo_Total_Seg
             FROM fact_visitas_meseros
             GROUP BY mesero_id
-            ORDER BY mesas_atendidas DESC
+            ORDER BY Mesas_Atendidas DESC, Tiempo_Promedio_Seg ASC
         """).df()
         con.close()
         return df_hechos, df_mesas, df_meseros
@@ -183,8 +210,8 @@ class AnalizadorServicio:
         if any(k in p for k in ["cliente", "vinieron", "llegaron", "hoy", "afluencia"]):
             tema = "clientes"
             respuestas.append(
-                f"👥 **Clientes Atendidos Hoy (con plato servido en mesa):** **{int(row['clientes_acumulados_dia'])} clientes** "
-                f"(actualmente se observan **{int(row['clientes_en_salon'])}** en todo el salón)."
+                f"👥 **Clientes Atendidos Hoy (con plato servido):** **{int(row['clientes_acumulados_dia'])} clientes** "
+                f"(actualmente hay **{int(row['clientes_en_salon'])}** en el salón)."
             )
 
         if any(k in p for k in ["ocuparon", "ocupada", "mesa", "silla", "a1", "a2", "a3", "b1", "b2", "usada"]):
@@ -198,27 +225,25 @@ class AnalizadorServicio:
                     respuestas.append(
                         f"🪑 **Detalle Mesa {r_m['mesa_id']}:** Ocupada **{int(r_m['veces_ocupada'])} veces**, "
                         f"atendió a **{int(r_m['clientes_acumulados'])} clientes**, **{int(r_m['visitas_mesero'])} visitas** "
-                        f"y su estado actual es **{r_m['estado_actual']}**."
+                        f"(tiempo promedio de atención: **{r_m['tiempo_promedio_atencion_seg']}s**)."
                     )
-            else:
-                if not df_mesas.empty:
-                    mesa_top = df_mesas.sort_values(by=["clientes_acumulados", "veces_ocupada"], ascending=False).iloc[0]
-                    detalle_oc = ", ".join([f"{r['mesa_id']}: {r['clientes_acumulados']} cli ({r['veces_ocupada']}x)" for _, r in df_mesas.iterrows()])
-                    respuestas.append(
-                        f"🪑 **Uso de Mesas (Más usada: {mesa_top['mesa_id']}):** {detalle_oc}."
-                    )
+            elif not df_mesas.empty:
+                mesa_top = df_mesas.sort_values(by=["clientes_acumulados", "veces_ocupada"], ascending=False).iloc[0]
+                detalle_oc = ", ".join([f"{r['mesa_id']}: {r['clientes_acumulados']} cli ({r['veces_ocupada']}x)" for _, r in df_mesas.iterrows()])
+                respuestas.append(f"🪑 **Uso de Mesas (Más usada: {mesa_top['mesa_id']}):** {detalle_oc}.")
 
-        if any(k in p for k in ["mesero", "trabajo", "trabajó", "atendio", "atendió", "visita", "personal"]):
+        if any(k in p for k in ["mesero", "trabajo", "trabajó", "atendio", "atendió", "tiempo", "demora", "demoran", "tarda"]):
             tema = "meseros"
             if not df_meseros.empty:
-                top_m = df_meseros.iloc[0]
-                ranking = ", ".join([f"{r['mesero_id']} ({r['mesas_atendidas']} atenciones)" for _, r in df_meseros.iterrows()])
+                lider = df_meseros.iloc[0]
                 respuestas.append(
-                    f"🤵 **Productividad de Meseros:** El que más ha trabajado es **{top_m['mesero_id']}** "
-                    f"con **{int(top_m['mesas_atendidas'])} atenciones** en mesas. Ranking: {ranking}."
+                    f"🤵 **Desempeño de Meseros:** El que más mesas ha atendido es **{lider['Mesero']}** "
+                    f"con **{int(lider['Mesas_Atendidas'])} atenciones** y un tiempo promedio de **{lider['Tiempo_Promedio_Seg']} segundos** por mesa."
                 )
             else:
-                respuestas.append(f"🤵 **Meseros activos:** Hay **{int(row['meseros'])} meseros** en turno (aún sin visitas registradas).")
+                respuestas.append(
+                    f"🤵 **Meseros en turno ({int(row['meseros'])} activos):** Cronometrando visitas a mesas en curso..."
+                )
 
         if not respuestas:
             respuestas.append(

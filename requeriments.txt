@@ -1,13 +1,23 @@
+# Interfaz y Visualización
 streamlit
+plotly
 pandas
-duckdb
 numpy
+
+# Data Warehouse y Minería de Datos (KDD / CRISP-DM / ML)
+duckdb
 scikit-learn
+
+# Visión Artificial, OCR y Captura de Pantalla
 opencv-python
+easyocr
 ultralytics
+pillow
+pyautogui
+mss
+
+# RAG / Procesamiento de Texto (Módulos previos)
 langchain-text-splitters
 langchain-community
 langchain-huggingface
 chromadb
-pillow
-pyautogui

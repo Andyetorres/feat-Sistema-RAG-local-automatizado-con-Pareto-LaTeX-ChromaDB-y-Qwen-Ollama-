@@ -65,28 +65,59 @@ class DetectorSimulador:
         self.next_mesero_id = 1
 
     def _asignar_ids_meseros(self, posiciones_actuales: list[tuple[int, int]], max_dist: float) -> dict[str, tuple[int, int]]:
+        """
+        Mantiene un pool estable de meseros (Mesero_1, Mesero_2, ...) sin crear IDs infinitos.
+        Si un mesero se pierde tras una mesa y reaparece, recupera su ID disponible.
+        """
+        if not hasattr(self, "meseros_pool"):
+            # {id_mesero: {"pos": (x, y), "frames_perdido": int}}
+            self.meseros_pool = {}
+
         asignados = {}
         usados = set()
 
+        # 1. Emparejar primero con meseros visibles recientemente por cercanía
         for pos in posiciones_actuales:
             mejor_id = None
             mejor_dist = max_dist
-            for mid, prev_pos in self.meseros_tracked.items():
+            for mid, info in self.meseros_pool.items():
                 if mid in usados:
                     continue
-                d = np.hypot(pos[0] - prev_pos[0], pos[1] - prev_pos[1])
+                d = np.hypot(pos[0] - info["pos"][0], pos[1] - info["pos"][1])
                 if d < mejor_dist:
                     mejor_dist = d
                     mejor_id = mid
 
-            if mejor_id is None:
-                mejor_id = f"Mesero_{self.next_mesero_id}"
-                self.next_mesero_id += 1
+            if mejor_id is not None:
+                self.meseros_pool[mejor_id] = {"pos": pos, "frames_perdido": 0}
+                asignados[mejor_id] = pos
+                usados.add(mejor_id)
 
-            asignados[mejor_id] = pos
-            usados.add(mejor_id)
+        # 2. Para posiciones sin emparejar, reutilizar un ID que lleve > 4 frames perdido antes de crear uno nuevo
+        for pos in posiciones_actuales:
+            if pos in asignados.values():
+                continue
+            disponibles = [
+                mid for mid, info in self.meseros_pool.items()
+                if mid not in usados and info["frames_perdido"] >= 4
+            ]
+            if disponibles:
+                # Tomar el que lleva más tiempo libre
+                reutilizado = max(disponibles, key=lambda m: self.meseros_pool[m]["frames_perdido"])
+                self.meseros_pool[reutilizado] = {"pos": pos, "frames_perdido": 0}
+                asignados[reutilizado] = pos
+                usados.add(reutilizado)
+            else:
+                nuevo_id = f"Mesero_{len(self.meseros_pool) + 1}"
+                self.meseros_pool[nuevo_id] = {"pos": pos, "frames_perdido": 0}
+                asignados[nuevo_id] = pos
+                usados.add(nuevo_id)
 
-        self.meseros_tracked = asignados
+        # 3. Incrementar contador de frames perdidos para los no vistos en este frame
+        for mid in self.meseros_pool:
+            if mid not in usados:
+                self.meseros_pool[mid]["frames_perdido"] += 1
+
         return asignados
 
     def procesar_frame(self, frame_bgr: np.ndarray, ocr_reader) -> tuple[np.ndarray, dict]:

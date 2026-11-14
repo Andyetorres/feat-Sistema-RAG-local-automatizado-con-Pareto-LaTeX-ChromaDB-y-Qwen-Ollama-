@@ -82,11 +82,12 @@ def renderizar_capa_mineria(
     with st.expander("🏛️ Arquitectura Data Warehouse + Fases KDD & CRISP-DM", expanded=False):
         c1, c2, c3 = st.columns(3)
         with c1:
+            total_vis_dw = int(df_meseros["Mesas_Atendidas"].sum()) if not df_meseros.empty else 0
             st.markdown("**1. Data Warehouse (Esquema Estrella)**")
             st.markdown(
                 f"- **Tabla de Hechos (`fact_servicio_live`):** {len(df_hechos)} eventos.\n"
                 f"- **Dimensión Mesas (`dim_mesas`):** {len(df_mesas)} mesas (`A1`–`B2`).\n"
-                f"- **Hechos Atención (`fact_visitas_meseros`):** {int(df_meseros['mesas_atendidas'].sum()) if not df_meseros.empty else 0} visitas."
+                f"- **Hechos Atención (`fact_visitas_meseros`):** {total_vis_dw} visitas cronometradas."
             )
         with c2:
             st.markdown("**2. Proceso KDD (Knowledge Discovery)**")
