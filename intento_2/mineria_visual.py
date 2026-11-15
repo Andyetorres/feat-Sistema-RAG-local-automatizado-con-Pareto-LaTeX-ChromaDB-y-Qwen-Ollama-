@@ -15,50 +15,54 @@ def _generar_proyeccion_temporal(df_hechos: pd.DataFrame) -> tuple[pd.DataFrame,
     dias = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
     horas = list(range(8, 23))
 
+    # Curva realista de restaurante (picos en almuerzo 12:00-14:00 y cena 19:00-21:00)
     curva_horaria = {
-        8: 15, 9: 25, 10: 35, 11: 55, 12: 88, 13: 95, 14: 75,
-        15: 40, 16: 30, 17: 38, 18: 60, 19: 85, 20: 98, 21: 80, 22: 45
+        8: 15, 9: 24, 10: 35, 11: 58, 12: 88, 13: 95, 14: 76,
+        15: 42, 16: 32, 17: 40, 18: 64, 19: 86, 20: 94, 21: 78, 22: 45
     }
     factor_dia = {
         "Lunes": 0.65, "Martes": 0.72, "Miércoles": 0.80,
-        "Jueves": 0.90, "Viernes": 1.15, "Sábado": 1.30, "Domingo": 1.10
+        "Jueves": 0.88, "Viernes": 1.05, "Sábado": 1.12, "Domingo": 0.98
     }
 
-    media_clientes_real = max(1.0, float(df_hechos["clientes_en_salon"].mean()))
-    escala = media_clientes_real / 6.0
-
+    capacidad_max = max(24.0, float(df_hechos["total_sillas"].max()))
     filas_horarias = []
+
     for d in dias:
         for h in horas:
+            base = curva_horaria[h] * factor_dia[d]
             reales = df_hechos[(df_hechos["dia_semana"] == d) & (df_hechos["hora_simulada"] == h)]
-            if not reales.empty:
-                afluencia = round(float(reales["clientes_en_salon"].mean()) * 10, 1)
-                origen = "Captura Live (DW)"
+            if not reales.empty and reales["clientes_en_salon"].mean() > 0:
+                # Porcentaje real respecto a la capacidad de 24 sillas, suavizado con la curva horaria
+                pct_real = (float(reales["clientes_en_salon"].mean()) / capacidad_max) * 100.0
+                afluencia = round(0.6 * pct_real + 0.4 * base, 1)
+                origen = "Captura Live + DW"
             else:
-                afluencia = round(curva_horaria[h] * factor_dia[d] * escala, 1)
+                afluencia = round(base, 1)
                 origen = "Proyección DW"
+
             filas_horarias.append({
                 "Dia": d,
                 "Hora": f"{h:02d}:00",
                 "Hora_Num": h,
-                "Afluencia": min(100.0, afluencia),
+                "Afluencia": min(98.0, max(10.0, afluencia)),
                 "Origen": origen
             })
     df_diario = pd.DataFrame(filas_horarias)
 
-    base_clientes_dia = max(12, int(df_hechos["clientes_acumulados_dia"].max()))
+    base_clientes_dia = max(15, int(df_hechos["clientes_acumulados_dia"].max()))
     df_semanal = pd.DataFrame({
         "Dia": dias,
-        "Clientes_Totales": [int(base_clientes_dia * factor_dia[d] * 3.2) for d in dias],
-        "Ocupacion_Promedio_%": [min(98, int(52 * factor_dia[d])) for d in dias]
+        "Clientes_Totales": [int(base_clientes_dia * factor_dia[d] * 3.5) for d in dias],
+        "Ocupacion_Promedio_%": [min(95, int(58 * factor_dia[d])) for d in dias]
     })
 
     semanas = ["Semana 1", "Semana 2", "Semana 3", "Semana 4"]
-    factores_sem = [0.88, 1.02, 0.95, 1.18]
+    factores_sem = [0.88, 1.02, 0.95, 1.15]
     df_mensual = pd.DataFrame({
         "Semana": semanas,
         "Clientes_Mensuales": [int(df_semanal["Clientes_Totales"].sum() * f) for f in factores_sem],
-        "Platos_Servidos": [int(df_semanal["Clientes_Totales"].sum() * f * 1.15) for f in factores_sem]
+        "Platos_Servidos": [int(df_semanal["Clientes_Totales"].sum() * f * 1.12) for f in factores_sem]
     })
 
     return df_diario, df_semanal, df_mensual
@@ -87,14 +91,14 @@ def renderizar_capa_mineria(
             st.markdown(
                 f"- **Tabla de Hechos (`fact_servicio_live`):** {len(df_hechos)} eventos.\n"
                 f"- **Dimensión Mesas (`dim_mesas`):** {len(df_mesas)} mesas (`A1`–`B2`).\n"
-                f"- **Hechos Atención (`fact_visitas_meseros`):** {total_vis_dw} visitas cronometradas."
+                f"- **Hechos Atención (`fact_visitas_meseros`):** {total_vis_dw} atenciones reales."
             )
         with c2:
             st.markdown("**2. Proceso KDD (Knowledge Discovery)**")
             st.markdown(
-                "- **Selección:** Visión RGB + OCR autónomo.\n"
-                "- **Preprocesamiento:** Conteo filtrado por platos servidos.\n"
-                "- **Transformación:** Mapeo temporal y ocupación.\n"
+                "- **Selección:** Visión RGB + Geometría espacial.\n"
+                "- **Preprocesamiento:** Filtro de permanencia (≥ 1.2s) y platos.\n"
+                "- **Transformación:** Mapeo temporal y ratio de carga.\n"
                 "- **Minería & Evaluación:** K-Means + Ensamble Híbrido."
             )
         with c3:
@@ -102,7 +106,7 @@ def renderizar_capa_mineria(
             st.markdown(
                 "- **Negocio:** Identificar horas pico y rotación por mesa.\n"
                 "- **Preparación:** Escalado `StandardScaler`.\n"
-                "- **Modelado:** Clustering + Árbol/MLP.\n"
+                "- **Modelado:** Clustering + Pronóstico futuro ($t+3$).\n"
                 "- **Despliegue:** Analítica en vivo."
             )
 
@@ -119,7 +123,7 @@ def renderizar_capa_mineria(
 
             if total_clientes_mesas == 0:
                 df_pastel["clientes_mostrar"] = df_pastel["cantidad_sillas"]
-                subtitulo_pie = "Capacidad por mesa (esperando que sirvan platos a los clientes)"
+                subtitulo_pie = "Capacidad instalada (esperando que sirvan platos a los clientes)"
             else:
                 df_pastel["clientes_mostrar"] = df_pastel["clientes_acumulados"]
                 subtitulo_pie = f"Total acumulado hoy: {total_clientes_mesas} clientes servidos en mesa"
@@ -268,11 +272,12 @@ def renderizar_capa_mineria(
         st.plotly_chart(fig_mes, width="stretch", key=f"chart_mensual_{ciclo}")
 
     # =========================================================================
-    # 4. CLUSTERING (K-MEANS)
+    # 4. CLUSTERING (K-MEANS) CON ORDENAMIENTO DE CENTROIDES POR DEMANDA REAL
     # =========================================================================
     st.subheader("🧩 Segmentación No Supervisada (Clustering K-Means)")
     features_cluster = ["clientes_en_salon", "mesas_ocupadas", "platos_comida", "tasa_ocupacion"]
-    X_raw = df_hechos[features_cluster].fillna(0)
+    df_k = df_hechos.copy()
+    X_raw = df_k[features_cluster].fillna(0)
 
     col_k1, col_k2 = st.columns([1.4, 1])
 
@@ -283,15 +288,29 @@ def renderizar_capa_mineria(
         n_clusters = min(3, len(X_raw.drop_duplicates()))
         if n_clusters >= 2:
             kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
-            df_hechos["cluster"] = kmeans.fit_predict(X_scaled)
-            sil_score = silhouette_score(X_scaled, df_hechos["cluster"]) if len(set(df_hechos["cluster"])) > 1 else 0.0
+            raw_labels = kmeans.fit_predict(X_scaled)
+            df_k["raw_cluster"] = raw_labels
+            sil_score = silhouette_score(X_scaled, raw_labels) if len(set(raw_labels)) > 1 else 0.0
 
-            nombres_perfil = {0: "Demanda Baja / Valle", 1: "Servicio Moderado", 2: "Hora Pico / Alta Saturación"}
-            df_hechos["perfil_operativo"] = df_hechos["cluster"].map(lambda c: nombres_perfil.get(c, f"Clúster {c}"))
+            # Ordenar los clústeres de menor a mayor carga operativa (clientes + tasa ocupación)
+            orden_carga = (
+                df_k.groupby("raw_cluster")[["clientes_en_salon", "tasa_ocupacion"]]
+                .mean()
+                .sum(axis=1)
+                .sort_values()
+                .index.tolist()
+            )
+            etiquetas_ordenadas = (
+                ["Demanda Baja / Valle", "Hora Pico / Alta Saturación"]
+                if len(orden_carga) == 2
+                else ["Demanda Baja / Valle", "Servicio Moderado", "Hora Pico / Alta Saturación"]
+            )
+            mapa_nombres = {cid: etiquetas_ordenadas[idx] for idx, cid in enumerate(orden_carga)}
+            df_k["perfil_operativo"] = df_k["raw_cluster"].map(mapa_nombres)
 
             with col_k1:
                 fig_cluster = px.scatter(
-                    df_hechos,
+                    df_k,
                     x="clientes_en_salon",
                     y="platos_comida",
                     color="perfil_operativo",
@@ -304,17 +323,17 @@ def renderizar_capa_mineria(
                 st.plotly_chart(fig_cluster, width="stretch", key=f"chart_kmeans_{ciclo}")
 
             with col_k2:
-                st.markdown("**Centroides y Reglas de Segmentación:**")
-                resumen_c = df_hechos.groupby("perfil_operativo")[features_cluster].mean().round(2)
+                st.markdown("**Centroides Ordenados por Carga Operativa:**")
+                resumen_c = df_k.groupby("perfil_operativo")[features_cluster].mean().round(2)
                 st.dataframe(resumen_c, width="stretch")
-                st.caption("Agrupa automáticamente los estados del simulador en niveles de carga operativa.")
+                st.caption("Los centroides se ordenan automáticamente de menor a mayor nivel de ocupación.")
         else:
             st.warning("Se necesita mayor variabilidad de movimiento en el simulador para formar clústeres.")
     else:
         st.info("Acumulando más estados operativos distintos para calcular los clústeres K-Means...")
 
     # =========================================================================
-    # 5. MODELO HÍBRIDO (ÁRBOL DE DECISIÓN + RED NEURONAL MLP) & PREDICCIÓN
+    # 5. MODELO HÍBRIDO PREDICTIVO (SIN DATA LEAKAGE -> PREDICE T+3)
     # =========================================================================
     st.subheader("🤖 Modelo Híbrido Predictivo (Árbol de Decisión + Red Neuronal MLP)")
 
@@ -326,13 +345,24 @@ def renderizar_capa_mineria(
         return np.zeros(len(X_datos))
 
     df_ml = df_hechos.copy()
-    df_ml["alta_demanda"] = ((df_ml["tasa_ocupacion"] >= 50.0) | (df_ml["clientes_en_salon"] >= 6)).astype(int)
+    # Ingeniería de características: tendencia de llegada y carga por mesero
+    df_ml["delta_clientes"] = df_ml["clientes_en_salon"].diff().fillna(0)
+    df_ml["carga_por_mesero"] = df_ml["clientes_en_salon"] / df_ml["meseros"].clip(lower=1)
 
-    conteo_clases = df_ml["alta_demanda"].value_counts()
+    # Target futuro (t + 3 eventos): ¿Habrá alta ocupación (>= 60% mesas o >= 8 clientes) en los próximos instantes?
+    ocupacion_futura = df_ml["tasa_ocupacion"].shift(-3)
+    clientes_futuros = df_ml["clientes_en_salon"].shift(-3)
+    df_ml["saturacion_futura"] = ((ocupacion_futura >= 60.0) | (clientes_futuros >= 8)).astype(float)
 
-    if len(conteo_clases) >= 2 and conteo_clases.min() >= 2 and len(df_ml) >= 10:
-        X = df_ml[["clientes_en_salon", "mesas_ocupadas", "meseros", "platos_comida"]]
-        y = df_ml["alta_demanda"]
+    df_entrenamiento = df_ml.dropna(subset=["saturacion_futura"]).copy()
+    df_entrenamiento["saturacion_futura"] = df_entrenamiento["saturacion_futura"].astype(int)
+
+    features_ml = ["carga_por_mesero", "delta_clientes", "platos_comida", "meseros"]
+    conteo_clases = df_entrenamiento["saturacion_futura"].value_counts()
+
+    if len(conteo_clases) >= 2 and conteo_clases.min() >= 2 and len(df_entrenamiento) >= 12:
+        X = df_entrenamiento[features_ml]
+        y = df_entrenamiento["saturacion_futura"]
 
         X_train, X_test, y_train, y_test = train_test_split(
             X, y, test_size=0.25, random_state=42, stratify=y
@@ -355,7 +385,8 @@ def renderizar_capa_mineria(
         pred_hibrida = ((0.5 * prob_tree + 0.5 * prob_mlp) >= 0.5).astype(int)
         acc_hibrido = accuracy_score(y_test, pred_hibrida)
 
-        ultimo_x = X.iloc[[-1]]
+        # Evaluar sobre el estado más reciente en vivo
+        ultimo_x = df_ml[features_ml].iloc[[-1]]
         ultimo_x_sc = scaler_ml.transform(ultimo_x)
         p_tree_act = obtener_probabilidad_clase_1(tree_clf, ultimo_x)[0]
         p_mlp_act = obtener_probabilidad_clase_1(mlp_clf, ultimo_x_sc)[0]
@@ -365,12 +396,12 @@ def renderizar_capa_mineria(
         m1.metric("Precisión Árbol Decisión", f"{acc_tree * 100:.1f}%")
         m2.metric("Precisión Red Neuronal MLP", f"{acc_mlp * 100:.1f}%")
         m3.metric("Precisión Modelo Híbrido", f"{acc_hibrido * 100:.1f}%")
-        m4.metric("Riesgo Saturación Próximo", f"{prob_saturacion_actual * 100:.1f}%")
+        m4.metric("Riesgo Saturación (t+3)", f"{prob_saturacion_actual * 100:.1f}%")
 
         c_reglas, c_pred = st.columns([1.2, 1])
         with c_reglas:
             st.markdown("**Reglas Extraídas del Árbol de Decisión (CRISP-DM):**")
-            reglas_txt = export_text(tree_clf, feature_names=list(X.columns))
+            reglas_txt = export_text(tree_clf, feature_names=features_ml)
             st.code(reglas_txt, language="text")
 
         with c_pred:
@@ -382,4 +413,4 @@ def renderizar_capa_mineria(
             else:
                 st.success("✅ **Demanda Baja:** Mesas disponibles y personal con baja carga.")
     else:
-        st.info("⏳ Acumulando muestras balanceadas (demanda baja y alta) para entrenar el Modelo Híbrido sin sesgo...")
+        st.info("⏳ Acumulando transiciones reales (flujo bajo y flujo alto) para entrenar el pronóstico futuro sin sesgo...")

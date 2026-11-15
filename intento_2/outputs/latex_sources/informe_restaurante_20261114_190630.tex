@@ -1,0 +1,90 @@
+
+\documentclass[12pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish]{babel}
+\usepackage{geometry}
+\geometry{margin=2.2cm}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{float}
+\usepackage{xcolor}
+\usepackage{hyperref}
+
+\title{\textbf{Informe Técnico de Analítica y Minería de Datos:\\ Reporte Ejecutivo Integral de Operación y Minería de Datos}}
+\author{Sistema Inteligente de Monitoreo en Tiempo Real (Visión + Data Warehouse)}
+\date{14/11/2026 19:06}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Este informe presenta los resultados obtenidos tras analizar 69 eventos en tiempo real mediante visión artificial, almacenamiento en Data Warehouse (DuckDB) y modelos de Minería de Datos. Se consolidó un total de 16 clientes atendidos y una ocupación media del 62.0\%.
+\end{abstract}
+
+\section{Enfoque Principal del Análisis}
+Al no restringirse a una única variable, este informe sintetiza los hallazgos principales del sistema: se atendieron \textbf{16 clientes}, la mesa de mayor rotación fue \textbf{B1 (6p) (6 clientes, 2 ocupaciones)}, y el desempeño destacado del personal correspondió a \textbf{Mesero\_2 (1 atenciones, 5.18s promedio)}.
+
+\section{Arquitectura del Sistema (Visión Artificial y Data Warehouse)}
+El monitoreo se ejecutó mediante detección por visión artificial y rastreo determinista de entidades en salón, alimentando un \textbf{Data Warehouse dimensional en DuckDB} compuesto por la tabla de hechos \texttt{fact\_servicio\_live} (69 registros capturados) y las dimensiones \texttt{dim\_mesas} y \texttt{fact\_visitas\_meseros}.
+
+\begin{table}[H]
+\centering
+\caption{Indicadores Globales Consolidados en el Data Warehouse}
+\begin{tabular}{lr}
+\toprule
+\textbf{Indicador Operativo} & \textbf{Valor Registrado} \\
+\midrule
+Total de clientes atendidos hoy (con plato servido) & 16 \\
+Clientes activos en el último corte & 13 \\
+Mesas ocupadas en el último corte & 3 de 5 \\
+Total de platos servidos detectados & 4 \\
+Personal activo (Chefs / Meseros) & 4 Chefs / 2 Meseros \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Desglose de Ocupación por Mesa (A1 -- B2)}
+\begin{table}[H]
+\centering
+\caption{Rotación, Clientes Atendidos y Tiempo de Servicio por Mesa}
+\begin{tabular}{lccccc}
+\toprule
+\textbf{Mesa} & \textbf{Sillas} & \textbf{Veces Ocupada} & \textbf{Clientes} & \textbf{Atenciones} & \textbf{Tiempo Prom.} \\
+\midrule
+A1 (4p) & 4 & 1 & 4 & 1 & 5.18 s \\
+A2 (4p) & 4 & 2 & 0 & 0 & 0.00 s \\
+A3 (4p) & 4 & 1 & 0 & 0 & 0.00 s \\
+B1 (6p) & 6 & 2 & 6 & 0 & 0.00 s \\
+B2 (6p) & 6 & 1 & 6 & 0 & 0.00 s \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Productividad y Tiempos de Atención por Mesero}
+\begin{table}[H]
+\centering
+\caption{Rendimiento y Tiempos Promedio del Personal de Salón}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Mesero} & \textbf{Atenciones} & \textbf{Mesas Distintas} & \textbf{Tiempo Prom.} & \textbf{Tiempo Total} \\
+\midrule
+Mesero\_2 & 1 & 1 & 5.18 s & 5.2 s \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Minería de Datos (Metodologías KDD, CRISP-DM y Modelo Híbrido)}
+Siguiendo las fases de \textbf{KDD} (Selección, Preprocesamiento, Transformación, Minería y Evaluación) y \textbf{CRISP-DM}, se aplicó segmentación no supervisada mediante \textit{K-Means} y un \textbf{Modelo Híbrido Predictivo} (Árbol de Decisión + Red Neuronal Perceptrón Multicapa MLP) para anticipar saturación en el comedor:
+\begin{itemize}
+\item \textbf{Ocupación Media del Salón:} 62.0\% de capacidad instalada.
+\item \textbf{Mesa Líder en Demanda:} B1 (6p) (6 clientes, 2 ocupaciones).
+\item \textbf{Mesero Líder en Servicio:} Mesero\_2 (1 atenciones, 5.18s promedio).
+\item \textbf{Modelo Híbrido (Árbol + MLP):} Evalúa la carga por mesero y variación de flujo para emitir alertas tempranas de saturación.
+\end{itemize}
+
+\section{Conclusiones y Recomendaciones Operativas}
+El pipeline automatizado permitió transformar capturas visuales en inteligencia de negocio estructurada. Se recomienda priorizar la reposición rápida en \textbf{B1} y reforzar el salón cuando la ocupación supere el 60\% para mantener tiempos de atención óptimos.
+
+\end{document}

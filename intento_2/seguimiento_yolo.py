@@ -1,5 +1,4 @@
 from datetime import datetime
-import re
 import cv2
 import easyocr
 import numpy as np
@@ -16,18 +15,6 @@ def mascara_color_rgb(img_rgb: np.ndarray, color_rgb: tuple[int, int, int], tole
     lower = np.clip(c - tolerancia, 0, 255).astype(np.uint8)
     upper = np.clip(c + tolerancia, 0, 255).astype(np.uint8)
     return cv2.inRange(img_rgb, lower, upper)
-
-
-def normalizar_etiqueta_mesa(texto_ocr: str, fallback_idx: int) -> tuple[str, int | None]:
-    txt = texto_ocr.upper().strip()
-    txt = txt.replace("BI", "B1").replace("AI", "A1").replace("I)", "1)").replace("O)", "0)")
-    match_codigo = re.search(r"([A-Z]\d)", txt)
-    match_cap = re.search(r"\((\d)\s*P\)", txt)
-    codigo = match_codigo.group(1) if match_codigo else f"M{fallback_idx}"
-    capacidad = int(match_cap.group(1)) if match_cap else None
-    if capacidad:
-        return f"{codigo} ({capacidad}p)", capacidad
-    return codigo, None
 
 
 class DetectorSimulador:
@@ -59,27 +46,32 @@ class DetectorSimulador:
         self.frame_count = 0
         self.cache_ocr = []
         self.zonas_estaticas = {}
-        self.etiquetas_mesas_fijas = {}
-        # Tracker simple para mantener ID estable de cada mesero (Mesero_1, Mesero_2...)
-        self.meseros_tracked = {}
-        self.next_mesero_id = 1
+        self.meseros_pool = {}
+        self.max_meseros_reales = 0
 
     def _asignar_ids_meseros(self, posiciones_actuales: list[tuple[int, int]], max_dist: float) -> dict[str, tuple[int, int]]:
         """
-        Mantiene un pool estable de meseros (Mesero_1, Mesero_2, ...) sin crear IDs infinitos.
-        Si un mesero se pierde tras una mesa y reaparece, recupera su ID disponible.
+        Mantiene estrictamente los 2 meseros reales del simulador (Mesero_1 y Mesero_2).
         """
+        MAX_MESEROS_SIMULADOR = 2
         if not hasattr(self, "meseros_pool"):
-            # {id_mesero: {"pos": (x, y), "frames_perdido": int}}
             self.meseros_pool = {}
+
+        # Quedarse como máximo con las 2 detecciones más separadas entre sí
+        posiciones_filtradas = []
+        for pos in posiciones_actuales:
+            if all(np.hypot(pos[0] - p[0], pos[1] - p[1]) > 14 for p in posiciones_filtradas):
+                posiciones_filtradas.append(pos)
+            if len(posiciones_filtradas) == MAX_MESEROS_SIMULADOR:
+                break
 
         asignados = {}
         usados = set()
 
-        # 1. Emparejar primero con meseros visibles recientemente por cercanía
-        for pos in posiciones_actuales:
+        # 1. Emparejar por cercanía con Mesero_1 / Mesero_2
+        for pos in posiciones_filtradas:
             mejor_id = None
-            mejor_dist = max_dist
+            mejor_dist = max_dist * 2.5
             for mid, info in self.meseros_pool.items():
                 if mid in usados:
                     continue
@@ -93,27 +85,22 @@ class DetectorSimulador:
                 asignados[mejor_id] = pos
                 usados.add(mejor_id)
 
-        # 2. Para posiciones sin emparejar, reutilizar un ID que lleve > 4 frames perdido antes de crear uno nuevo
-        for pos in posiciones_actuales:
+        # 2. Reutilizar slot libre o crear hasta máximo Mesero_2
+        for pos in posiciones_filtradas:
             if pos in asignados.values():
                 continue
-            disponibles = [
-                mid for mid, info in self.meseros_pool.items()
-                if mid not in usados and info["frames_perdido"] >= 4
-            ]
-            if disponibles:
-                # Tomar el que lleva más tiempo libre
-                reutilizado = max(disponibles, key=lambda m: self.meseros_pool[m]["frames_perdido"])
+            libres = [mid for mid in self.meseros_pool if mid not in usados]
+            if libres:
+                reutilizado = max(libres, key=lambda m: self.meseros_pool[m]["frames_perdido"])
                 self.meseros_pool[reutilizado] = {"pos": pos, "frames_perdido": 0}
                 asignados[reutilizado] = pos
                 usados.add(reutilizado)
-            else:
+            elif len(self.meseros_pool) < MAX_MESEROS_SIMULADOR:
                 nuevo_id = f"Mesero_{len(self.meseros_pool) + 1}"
                 self.meseros_pool[nuevo_id] = {"pos": pos, "frames_perdido": 0}
                 asignados[nuevo_id] = pos
                 usados.add(nuevo_id)
 
-        # 3. Incrementar contador de frames perdidos para los no vistos en este frame
         for mid in self.meseros_pool:
             if mid not in usados:
                 self.meseros_pool[mid]["frames_perdido"] += 1
@@ -128,7 +115,7 @@ class DetectorSimulador:
         area_total = float(h_img * w_img)
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        if self.frame_count == 1 or self.frame_count % 30 == 0:
+        if self.frame_count == 1 or self.frame_count % 35 == 0:
             self.cache_ocr = ocr_reader.readtext(frame_bgr, detail=1)
             self._actualizar_zonas_estaticas(self.cache_ocr)
 
@@ -136,7 +123,7 @@ class DetectorSimulador:
             cv2.rectangle(frame_anotado, (zx1 - 3, zy1 - 3), (zx2 + 3, zy2 + 3), (255, 200, 0), 2)
             cv2.putText(frame_anotado, nombre_zona, (zx1, max(15, zy1 - 5)), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (255, 200, 0), 2)
 
-        # 1. MESAS (Distinguiendo si está LIBRE u OCUPADA por su color RGB exacto)
+        # 1. DETECCIÓN DETERMINISTA DE LAS 5 MESAS (A1..A3 arriba, B1..B2 abajo)
         mask_m_libre = mascara_color_rgb(img_rgb, self.COLOR_MESA_LIBRE, tolerancia=14)
         mask_m_ocupada = mascara_color_rgb(img_rgb, self.COLOR_MESA_OCUPADA, tolerancia=14)
         mask_mesas = cv2.bitwise_or(mask_m_libre, mask_m_ocupada)
@@ -152,7 +139,6 @@ class DetectorSimulador:
             x, y, w, h = cv2.boundingRect(cnt)
             aspect_ratio = w / float(h) if h > 0 else 0
             if 0.0025 <= ratio_area <= 0.045 and 0.85 <= aspect_ratio <= 2.6:
-                # Verificar si la mesa tiene el tono de mesa ocupada (180, 80, 50)
                 pix_ocupada = cv2.countNonZero(mask_m_ocupada[y:y + h, x:x + w])
                 esta_ocupada = pix_ocupada > (area * 0.25)
                 mesas_raw.append({
@@ -161,46 +147,47 @@ class DetectorSimulador:
                     "ocupada": esta_ocupada,
                 })
 
-        mesas_raw.sort(key=lambda m: (m["centro"][1] // max(1, int(h_img * 0.15)), m["centro"][0]))
+        # Ordenar por fila (arriba vs abajo) y luego de izquierda a derecha
+        mesas_raw.sort(key=lambda m: (m["centro"][1] // max(1, int(h_img * 0.18)), m["centro"][0]))
+
+        fila_superior = [m for m in mesas_raw if m["centro"][1] < (h_img * 0.48)]
+        fila_inferior = [m for m in mesas_raw if m["centro"][1] >= (h_img * 0.48)]
+        fila_superior.sort(key=lambda m: m["centro"][0])
+        fila_inferior.sort(key=lambda m: m["centro"][0])
 
         mesas_finales = []
-        for idx, m in enumerate(mesas_raw, start=1):
+        for idx, m in enumerate(fila_superior, start=1):
             mx1, my1, mx2, my2 = m["bbox"]
-            ancho_relativo = (mx2 - mx1) / float(w_img)
-            clave_pos = (mx1 // 30, my1 // 30)
-
-            if clave_pos not in self.etiquetas_mesas_fijas:
-                etiqueta_ocr, cap_ocr = None, None
-                for (bbox, texto, conf) in self.cache_ocr:
-                    tx = (bbox[0][0] + bbox[2][0]) / 2
-                    ty = (bbox[0][1] + bbox[2][1]) / 2
-                    if mx1 <= tx <= mx2 and my1 <= ty <= my2 and conf > 0.20:
-                        etiqueta_ocr, cap_ocr = normalizar_etiqueta_mesa(texto, idx)
-                        break
-
-                if cap_ocr is not None:
-                    self.etiquetas_mesas_fijas[clave_pos] = (etiqueta_ocr, cap_ocr)
-                else:
-                    num_sillas = 6 if ancho_relativo > 0.105 else 4
-                    nombre_auto = f"A{idx} (4p)" if num_sillas == 4 else f"B{max(1, idx - 3)} (6p)"
-                    self.etiquetas_mesas_fijas[clave_pos] = (nombre_auto, num_sillas)
-
-            etiqueta_mesa, num_sillas = self.etiquetas_mesas_fijas[clave_pos]
-            estado_txt = "OCUPADA" if m["ocupada"] else "LIBRE"
-
+            etiqueta = f"A{idx} (4p)"
             mesas_finales.append({
-                "id": etiqueta_mesa,
+                "id": etiqueta,
                 "bbox": (mx1, my1, mx2, my2),
                 "centro": m["centro"],
-                "sillas": num_sillas,
+                "sillas": 4,
                 "ocupada": m["ocupada"],
+                "platos": 0,
             })
 
-            color_borde = (0, 140, 255) if m["ocupada"] else (0, 255, 0)
+        for idx, m in enumerate(fila_inferior, start=1):
+            mx1, my1, mx2, my2 = m["bbox"]
+            etiqueta = f"B{idx} (6p)"
+            mesas_finales.append({
+                "id": etiqueta,
+                "bbox": (mx1, my1, mx2, my2),
+                "centro": m["centro"],
+                "sillas": 6,
+                "ocupada": m["ocupada"],
+                "platos": 0,
+            })
+
+        for mesa in mesas_finales:
+            mx1, my1, mx2, my2 = mesa["bbox"]
+            estado_txt = "OCUPADA" if mesa["ocupada"] else "LIBRE"
+            color_borde = (0, 140, 255) if mesa["ocupada"] else (0, 255, 0)
             cv2.rectangle(frame_anotado, (mx1, my1), (mx2, my2), color_borde, 2)
             cv2.putText(
                 frame_anotado,
-                f"{etiqueta_mesa} [{estado_txt}]",
+                f"{mesa['id']} [{estado_txt}]",
                 (mx1, my1 - 5),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.38,
@@ -223,7 +210,7 @@ class DetectorSimulador:
         for col_ropa in self.ROPA_CLIENTES:
             mask_ropa_clientes = cv2.bitwise_or(mask_ropa_clientes, mascara_color_rgb(img_rgb, col_ropa, tolerancia=16))
 
-        # 2. CHEFS EN COCINA (Deduplicando gorro + delantal)
+        # 2. CHEFS EN COCINA
         chefs = []
         kernel_cocina = np.ones((11, 11), np.uint8)
         mask_cocina_solida = cv2.morphologyEx(mask_cocina, cv2.MORPH_CLOSE, kernel_cocina)
@@ -259,6 +246,7 @@ class DetectorSimulador:
                         cv2.putText(frame_anotado, "Chef", (abs_x - 4, abs_y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.36, (255, 255, 255), 1)
 
         # 3. MESEROS, CLIENTES Y CAJERO EN SALÓN
+        mask_piel_clara = mascara_color_rgb(img_rgb, (255, 224, 189), tolerancia=8)
         contornos_piel, _ = cv2.findContours(mask_piel_total, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         meseros_pos = []
         clientes = []
@@ -278,31 +266,32 @@ class DetectorSimulador:
                 x1_box, x2_box = max(0, px - 6), min(w_img, px + pw + 6)
 
                 roi_caja = cv2.countNonZero(mask_caja[y1_box:y2_box, x1_box:x2_box])
-                roi_mesero = cv2.countNonZero(mask_traje_mesero[y1_box:y2_box, x1_box:x2_box])
+                roi_mesero_negro = cv2.countNonZero(mask_traje_mesero[y1_box:y2_box, x1_box:x2_box])
+                roi_camisa_blanca = cv2.countNonZero(mask_blanco[y1_box:y2_box, x1_box:x2_box])
+                roi_piel_clara = cv2.countNonZero(mask_piel_clara[py:py + ph, px:px + pw])
                 roi_cajero = cv2.countNonZero(mask_traje_cajero[y1_box:y2_box, x1_box:x2_box])
                 roi_ropa_cli = cv2.countNonZero(mask_ropa_clientes[y1_box:y2_box, x1_box:x2_box])
 
-                if roi_caja > 40 and roi_cajero > 15:
+                # 1. Cajero: sobre zona verde de caja + traje gris oscuro + corbata azul
+                if roi_caja > 35 and (roi_cajero > 12 or roi_ropa_cli > 8):
                     cajeros.append((cx, cy))
                     cv2.rectangle(frame_anotado, (px - 4, py - 5), (px + pw + 4, py + ph + 12), (0, 255, 127), 2)
                     cv2.putText(frame_anotado, "Cajero", (px - 6, py - 7), cv2.FONT_HERSHEY_SIMPLEX, 0.36, (0, 255, 127), 1)
-                elif roi_mesero >= 20:
+                # 2. Mesero: obligatoriamente piel clara + traje negro (30,30,30) + camisa blanca (240,240,240)
+                elif roi_piel_clara >= 25 and roi_mesero_negro >= 25 and roi_camisa_blanca >= 15 and roi_caja == 0:
                     meseros_pos.append((cx, cy))
-                elif roi_ropa_cli >= 15:
+                # 3. Cliente: ropa de color de cliente (rojo, azul, verde agua, amarillo o morado)
+                elif roi_ropa_cli >= 15 and roi_caja == 0:
                     clientes.append((cx, cy))
                     cv2.rectangle(frame_anotado, (px - 4, py - 5), (px + pw + 4, py + ph + 12), (255, 0, 255), 2)
                     cv2.putText(frame_anotado, "Cliente", (px - 6, py - 7), cv2.FONT_HERSHEY_SIMPLEX, 0.36, (255, 0, 255), 1)
 
-        # Asignar IDs persistentes a los meseros y dibujar etiqueta con su ID
         meseros_dict = self._asignar_ids_meseros(meseros_pos, max_dist=w_img * 0.12)
         for mid, (mx, my) in meseros_dict.items():
             cv2.rectangle(frame_anotado, (mx - 10, my - 10), (mx + 10, my + 14), (0, 165, 255), 2)
             cv2.putText(frame_anotado, mid, (mx - 16, my - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.36, (0, 165, 255), 1)
 
-        # 4. PLATOS DE COMIDA EXACTOS POR MESA (Naranja 220,100,40 + Blanco 240,240,240)
-        for m in mesas_finales:
-            m["platos"] = 0
-
+        # 4. PLATOS DE COMIDA EXACTOS POR MESA
         mask_comida_naranja = mascara_color_rgb(img_rgb, (220, 100, 40), tolerancia=18)
         contornos_comida, _ = cv2.findContours(mask_comida_naranja, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         platos_comida = 0
@@ -324,15 +313,21 @@ class DetectorSimulador:
                             cv2.circle(frame_anotado, (bcx, bcy), 7, (0, 255, 255), 2)
                             break
 
-        # 5. VISITAS DE MESEROS A MESAS (Con ID real del mesero)
-        umbral_visita = w_img * 0.095
+        # 5. PROXIMIDAD DE MESEROS A MESAS (Solo la mesa más cercana dentro del radio de servicio)
+        umbral_visita = w_img * 0.085
         visitas_actuales = []
         for mid, (mx, my) in meseros_dict.items():
+            mejor_mesa = None
+            mejor_dist = umbral_visita
             for mesa in mesas_finales:
                 mcx, mcy = mesa["centro"]
-                if np.hypot(mx - mcx, my - mcy) < umbral_visita:
-                    visitas_actuales.append({"mesero_id": mid, "mesa": mesa["id"]})
-                    cv2.line(frame_anotado, (mx, my), (mcx, mcy), (0, 255, 255), 2)
+                d = np.hypot(mx - mcx, my - mcy)
+                if d < mejor_dist:
+                    mejor_dist = d
+                    mejor_mesa = mesa
+            if mejor_mesa is not None:
+                visitas_actuales.append({"mesero_id": mid, "mesa": mejor_mesa["id"]})
+                cv2.line(frame_anotado, (mx, my), mejor_mesa["centro"], (0, 255, 255), 2)
 
         frame_rgb_out = cv2.cvtColor(frame_anotado, cv2.COLOR_BGR2RGB)
 
@@ -365,10 +360,4 @@ class DetectorSimulador:
             "PASILLO": "Pasillo Meseros",
         }
         for (bbox, texto, conf) in resultados_ocr:
-            txt_upper = texto.upper().strip()
-            x1, y1 = int(bbox[0][0]), int(bbox[0][1])
-            x2, y2 = int(bbox[2][0]), int(bbox[2][1])
-            for clave, nombre_zona in palabras_clave.items():
-                if clave == txt_upper or (len(clave) > 3 and clave in txt_upper):
-                    if conf > 0.25:
-                        self.zonas_estaticas[nombre_zona] = (x1, y1, x2, y2)
+            txt_upper = texto.upper().strip

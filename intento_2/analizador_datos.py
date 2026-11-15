@@ -6,11 +6,11 @@ import pandas as pd
 
 class AnalizadorServicio:
     DIAS_SEMANA = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+    DURACION_MINIMA_ATENCION_SEG = 1.2  # Descarta meseros que solo pasan caminando junto a la mesa
 
     def __init__(self, db_path: str = "intento_2/dw_restaurante.duckdb"):
         self.db_path = db_path
         self._inicializar_dw()
-        # {(mesero_id, mesa_id): timestamp_inicio_float}
         self.visitas_activas = {}
         self.mesas_ocupadas_prev = set()
         self.platos_por_mesa_prev = {}
@@ -147,35 +147,33 @@ class AnalizadorServicio:
             ],
         )
 
-        # Cronometrar visitas de cada mesero a cada mesa
+        # Cronometrar atenciones reales (solo si el mesero permanece >= 1.2s junto a la mesa)
         pares_actuales = set()
         for v in datos["visitas_meseros"]:
             par = (v["mesero_id"], v["mesa"])
             pares_actuales.add(par)
             if par not in self.visitas_activas:
-                # Inicia atención en mesa
                 self.visitas_activas[par] = ahora_epoch
-                con.execute("UPDATE dim_mesas SET visitas_mesero = visitas_mesero + 1 WHERE mesa_id = ?", [v["mesa"]])
 
-        # Cerrar las visitas que terminaron en este frame y guardar su duración en segundos
         terminadas = [par for par in self.visitas_activas if par not in pares_actuales]
         for par in terminadas:
             t_inicio = self.visitas_activas.pop(par)
-            duracion = round(max(0.3, ahora_epoch - t_inicio), 2)
-            mesero_id, mesa_id = par
-            con.execute(
-                "INSERT INTO fact_visitas_meseros VALUES (?, ?, ?, ?)",
-                [datos["timestamp"], mesero_id, mesa_id, duracion],
-            )
-            # Actualizar tiempo promedio de atención en dim_mesas
-            avg_mesa = con.execute(
-                "SELECT AVG(duracion_seg) FROM fact_visitas_meseros WHERE mesa_id = ?", [mesa_id]
-            ).fetchone()[0]
-            if avg_mesa is not None:
+            duracion = round(ahora_epoch - t_inicio, 2)
+            if duracion >= self.DURACION_MINIMA_ATENCION_SEG:
+                mesero_id, mesa_id = par
                 con.execute(
-                    "UPDATE dim_mesas SET tiempo_promedio_atencion_seg = ? WHERE mesa_id = ?",
-                    [round(float(avg_mesa), 2), mesa_id],
+                    "INSERT INTO fact_visitas_meseros VALUES (?, ?, ?, ?)",
+                    [datos["timestamp"], mesero_id, mesa_id, duracion],
                 )
+                con.execute("UPDATE dim_mesas SET visitas_mesero = visitas_mesero + 1 WHERE mesa_id = ?", [mesa_id])
+                avg_mesa = con.execute(
+                    "SELECT AVG(duracion_seg) FROM fact_visitas_meseros WHERE mesa_id = ?", [mesa_id]
+                ).fetchone()[0]
+                if avg_mesa is not None:
+                    con.execute(
+                        "UPDATE dim_mesas SET tiempo_promedio_atencion_seg = ? WHERE mesa_id = ?",
+                        [round(float(avg_mesa), 2), mesa_id],
+                    )
 
         con.close()
 
@@ -236,13 +234,16 @@ class AnalizadorServicio:
             tema = "meseros"
             if not df_meseros.empty:
                 lider = df_meseros.iloc[0]
+                desglose = " | ".join([
+                    f"**{r['Mesero']}**: {int(r['Mesas_Atendidas'])} mesas ({r['Tiempo_Promedio_Seg']}s prom.)"
+                    for _, r in df_meseros.iterrows()
+                ])
                 respuestas.append(
-                    f"🤵 **Desempeño de Meseros:** El que más mesas ha atendido es **{lider['Mesero']}** "
-                    f"con **{int(lider['Mesas_Atendidas'])} atenciones** y un tiempo promedio de **{lider['Tiempo_Promedio_Seg']} segundos** por mesa."
+                    f"🤵 **Desempeño por Mesero (Líder: {lider['Mesero']}):** {desglose}."
                 )
             else:
                 respuestas.append(
-                    f"🤵 **Meseros en turno ({int(row['meseros'])} activos):** Cronometrando visitas a mesas en curso..."
+                    f"🤵 **Meseros en turno ({int(row['meseros'])} activos):** Registrando atenciones detenidas en mesa (≥ 1.2s)..."
                 )
 
         if not respuestas:

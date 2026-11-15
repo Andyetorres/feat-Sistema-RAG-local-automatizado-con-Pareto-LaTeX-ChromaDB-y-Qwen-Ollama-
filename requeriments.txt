@@ -21,3 +21,6 @@ langchain-text-splitters
 langchain-community
 langchain-huggingface
 chromadb
+
+# Nota de Sistema (Opcional para compilación PDF desde LaTeX):
+# En Ubuntu/Debian instalar vía apt: sudo apt install -y texlive-latex-base texlive-latex-recommended texlive-lang-spanish
