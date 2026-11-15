@@ -1,3 +1,4 @@
+import os
 import time
 import streamlit as st
 
@@ -15,6 +16,25 @@ st.set_page_config(
 
 st.title("🍽️ Sistema Inteligente de Monitoreo y Minería de Datos en Restaurante")
 st.caption("Arquitectura Integral: Visión Artificial (Cap. 1) • Data Warehouse DuckDB (Cap. 2) • Minería KDD/CRISP-DM (Cap. 3) • Reporte LaTeX/PDF (Cap. 4)")
+
+with st.expander("📖 Guía de Funcionamiento y Arquitectura del Sistema", expanded=False):
+    if os.path.exists("intento_2/123.jpeg"):
+        st.image("intento_2/123.jpeg", width="stretch")
+        st.divider()
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.markdown("**1. Visión Artificial (Cap. 1)**")
+        st.caption("Captura en tiempo real con `mss`, detección de entidades y lectura de zonas con EasyOCR.")
+    with col2:
+        st.markdown("**2. Data Warehouse (Cap. 2)**")
+        st.caption("Almacenamiento dimensional de eventos, tiempos, mesas (`A1`–`B2`) y meseros en DuckDB.")
+    with col3:
+        st.markdown("**3. Minería de Datos (Cap. 3)**")
+        st.caption("Procesamiento bajo metodología KDD/CRISP-DM con Clustering K-Means y Modelo Híbrido (Árbol + MLP).")
+    with col4:
+        st.markdown("**4. Reporte LaTeX (Cap. 4)**")
+        st.caption("Generación automatizada de código `.tex` y compilación a documento ejecutivo PDF.")
+    st.info("💡 **Flujo de uso:** 1) Selecciona la región del simulador → 2) Inicia en vivo → 3) Detén la captura para consultar y generar el informe LaTeX.")
 
 # =========================================================================
 # INICIALIZACIÓN DE ESTADO EN SESIÓN
@@ -102,8 +122,8 @@ contenedor_mineria = st.empty()
 # =========================================================================
 # CAPA 4: GENERADOR DE INFORME LATEX / PDF (FUERA DEL BUCLE EN VIVO)
 # =========================================================================
-df_hechos_rep, df_mesas_rep, df_meseros_rep = st.session_state.analizador.obtener_datasets_dw()
 renderizar_seccion_latex(st.session_state.analizador)
+
 # =========================================================================
 # BUCLE DE EJECUCIÓN EN TIEMPO REAL vs MODO PAUSA / CONSULTA
 # =========================================================================
